@@ -52,6 +52,8 @@
 #endif
 
 #include <cmath>
+#include <QDir>
+#include <KWindowInfo>
 
 K_PLUGIN_FACTORY_WITH_JSON(
     BreezeDecoFactory,
@@ -288,6 +290,10 @@ namespace Breeze
         auto c = client().toStrongRef().data();
         QColor titleBarColor;
 
+        if ( isKonsoleWindow(c) ) {
+            return m_KonsoleTitleBarColor;
+        }
+
         if ( !matchColorForTitleBar() ) {
             if( m_animation->state() == QAbstractAnimation::Running )
             {
@@ -299,8 +305,9 @@ namespace Breeze
         }
         else {
           titleBarColor = c->palette().color(QPalette::Window);
+          titleBarColor.setAlpha(titleBarAlpha());
         }
-        titleBarColor.setAlpha(titleBarAlpha());
+
         return titleBarColor;
     }
 
@@ -604,6 +611,75 @@ namespace Breeze
 
         setShadow(g_sShadow);
     }
+
+   //________________________________________________________________
+void Decoration::readKonsoleProfileColor()
+    {
+    m_KonsoleTitleBarColorValid = false;
+    
+    const KConfig konsoleConfig("konsolerc");
+    const QString defaultProfileFile = konsoleConfig.group("Desktop Entry").readEntry("DefaultProfile", QString());
+    
+    // Konsole config profile path
+    const QString configLocation(QDir::homePath() + "/.local/share/konsole/");
+    const QString shellProfileLocation(configLocation + defaultProfileFile);
+    
+    if (!QFile::exists(shellProfileLocation)) {
+      return;
+    }
+    
+    const KConfig configProfile(shellProfileLocation, KConfig::NoGlobals);
+    
+    const QString colorFileLocation = configLocation + configProfile.group("Appearance").readEntry("ColorScheme", QString()) + ".colorscheme";
+    
+    if (!QFile::exists(colorFileLocation)) {
+      return;
+    }
+    
+    const KConfig configColor(colorFileLocation, KConfig::NoGlobals);
+    const QStringList backgroundRGB = configColor.group("Background").readEntry("Color").split(',');
+    
+    if (backgroundRGB.size() != 3) {
+      return;
+    }
+    
+    m_KonsoleTitleBarColor.setRed(backgroundRGB[0].toInt());
+    m_KonsoleTitleBarColor.setGreen(backgroundRGB[1].toInt());
+    m_KonsoleTitleBarColor.setBlue(backgroundRGB[2].toInt());
+    
+    m_KonsoleTitleBarColor.setAlpha(configColor.group("General").readEntry("Opacity").toFloat() * 255);
+    
+    // Text color
+    const QStringList foregroundRGB = configColor.group("Foreground").readEntry("Color").split(',');
+    
+    if (foregroundRGB.size() != 3) {
+      return;
+    }
+    
+    m_KonsoleTitleBarTextColorActive.setRed(foregroundRGB[0].toInt());
+    m_KonsoleTitleBarTextColorActive.setGreen(foregroundRGB[1].toInt());
+    m_KonsoleTitleBarTextColorActive.setBlue(foregroundRGB[2].toInt());
+    
+    m_KonsoleTitleBarTextColorInactive = m_KonsoleTitleBarTextColorActive;
+    m_KonsoleTitleBarTextColorInactive.setAlphaF(0.5);
+    
+    m_KonsoleTitleBarColorValid = true;
+    }
+    
+    //________________________________________________________________
+    bool Decoration::isKonsoleWindow(KDecoration2::DecoratedClient *dc) const
+    {
+    if (!m_KonsoleTitleBarColorValid) {
+      return false;
+    }
+    
+    KWindowInfo info(dc->windowId(), 0, NET::WM2WindowClass | NET::WM2WindowRole);
+    
+    return info.valid() &&
+    info.windowClassClass() == QByteArray("konsole") &&
+    info.windowRole().startsWith("MainWindow");
+    }
+
 
     //________________________________________________________________
     void Decoration::updateSizeGripVisibility()
